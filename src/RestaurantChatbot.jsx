@@ -1,0 +1,406 @@
+import { useState, useRef, useEffect } from "react";
+
+const RESTAURANT = {
+  name: "Bella Notte",
+  cuisine: "Italiana",
+  emoji: "🍷",
+  color: "#C8102E",
+  accent: "#F4A261",
+};
+
+const SYSTEM_PROMPT = `Eres el asistente virtual de ${RESTAURANT.name}, un restaurante italiano elegante.
+
+INFORMACIÓN DEL RESTAURANTE:
+- Nombre: ${RESTAURANT.name}
+- Tipo: Restaurante italiano de autor
+- Horario: Lunes a Jueves 12:00–23:00 | Viernes y Sábado 12:00–00:00 | Domingo 12:00–22:00
+- Dirección: Calle Gourmet 45, Zona Rosa
+- Teléfono: +1 (555) 234-5678
+- Reservaciones: Sí, con mínimo 2 horas de anticipación
+
+MENÚ PRINCIPALES:
+Entradas: Bruschetta al pomodoro $12 | Carpaccio di manzo $18 | Burrata fresca $16
+Pastas: Spaghetti alla carbonara $24 | Tagliatelle al ragú $22 | Ravioli di ricotta $20
+Secondi: Branzino al forno $32 | Pollo alla Milanese $28 | Filetto di manzo $45
+Postres: Tiramisú clásico $10 | Panna cotta $9 | Cannoli siciliani $11
+Bebidas: Vinos desde $9 la copa | Cócteles $14 | Sin alcohol $6
+
+OPCIONES ESPECIALES:
+- Menú vegetariano disponible
+- Opciones sin gluten (preguntar al mesero)
+- Menú infantil $15
+- Happy Hour: Lun-Jue 17:00–19:00 (50% en cócteles)
+
+REGLAS:
+- Responde SIEMPRE en el idioma que te hablen (español, inglés, etc.)
+- Sé cálido, elegante y breve (máximo 3-4 líneas por respuesta)
+- Si preguntan por reservación, pide: nombre, fecha, hora y número de personas
+- Si no sabes algo, di que con gusto un miembro del equipo puede ayudar
+- Usa emojis con moderación y buen gusto
+- Nunca inventes precios o platos que no están en el menú`;
+
+const QUICK_QUESTIONS = [
+  "¿Cuál es el horario?",
+  "¿Tienen opciones vegetarianas?",
+  "Quiero hacer una reservación",
+  "¿Qué me recomiendas?",
+];
+
+const styles = `
+  @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;1,400&family=Jost:wght@300;400;500&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body, #root {
+    height: 100%;
+    width: 100%;
+    overflow: hidden;
+  }
+
+  body {
+    font-family: 'Jost', sans-serif;
+    background: #0a0a0a;
+    -webkit-font-smoothing: antialiased;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  .page {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100%;
+    min-height: 100dvh;
+    padding: 0;
+    background: #0a0a0a;
+  }
+
+  .chat-wrapper {
+    width: 100%;
+    max-width: 440px;
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    background: #111;
+    overflow: hidden;
+  }
+
+  @media (min-width: 500px) {
+    .page { padding: 20px; }
+    .chat-wrapper {
+      height: min(780px, 96dvh);
+      border-radius: 20px;
+      box-shadow: 0 32px 80px rgba(0,0,0,0.7);
+    }
+  }
+
+  .header {
+    background: #C8102E;
+    padding: 20px 24px 18px;
+    flex-shrink: 0;
+    position: relative;
+    overflow: hidden;
+  }
+  .header::before {
+    content: '';
+    position: absolute;
+    top: -30px; right: -30px;
+    width: 130px; height: 130px;
+    background: rgba(255,255,255,0.06);
+    border-radius: 50%;
+  }
+  .header::after {
+    content: '';
+    position: absolute;
+    bottom: -20px; left: 20px;
+    width: 80px; height: 80px;
+    background: rgba(244,162,97,0.15);
+    border-radius: 50%;
+  }
+  .header-inner { position: relative; z-index: 1; }
+  .header-emoji { font-size: 26px; margin-bottom: 4px; }
+  .restaurant-name {
+    font-family: 'Cormorant Garamond', serif;
+    font-size: clamp(22px, 5vw, 26px);
+    font-weight: 600;
+    color: white;
+    letter-spacing: 1px;
+  }
+  .restaurant-sub {
+    font-size: 10px;
+    color: rgba(255,255,255,0.7);
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    margin-top: 2px;
+  }
+  .status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 10px;
+  }
+  .status-dot {
+    width: 7px; height: 7px;
+    background: #4ade80;
+    border-radius: 50%;
+    animation: pulse 2s infinite;
+  }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+  .status-text { font-size: 11px; color: rgba(255,255,255,0.8); }
+
+  .messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px 16px 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+    scrollbar-color: #2a2a2a transparent;
+  }
+  .messages::-webkit-scrollbar { width: 4px; }
+  .messages::-webkit-scrollbar-thumb { background: #2a2a2a; border-radius: 4px; }
+
+  .bubble {
+    max-width: 82%;
+    padding: 11px 15px;
+    border-radius: 18px;
+    font-size: clamp(13px, 3.5vw, 14px);
+    line-height: 1.6;
+    animation: fadeUp 0.25s ease;
+    word-break: break-word;
+    white-space: pre-wrap;
+  }
+  @keyframes fadeUp { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:translateY(0)} }
+  .bubble.user {
+    background: #C8102E;
+    color: white;
+    align-self: flex-end;
+    border-bottom-right-radius: 4px;
+  }
+  .bubble.assistant {
+    background: #1e1e1e;
+    color: #e8e8e8;
+    align-self: flex-start;
+    border-bottom-left-radius: 4px;
+    border: 1px solid #2a2a2a;
+  }
+
+  .typing {
+    display: flex;
+    gap: 5px;
+    align-items: center;
+    padding: 14px 18px;
+  }
+  .dot {
+    width: 6px; height: 6px;
+    background: #555;
+    border-radius: 50%;
+    animation: bounce 1.2s infinite;
+  }
+  .dot:nth-child(2){animation-delay:0.2s}
+  .dot:nth-child(3){animation-delay:0.4s}
+  @keyframes bounce { 0%,60%,100%{transform:translateY(0)} 30%{transform:translateY(-6px)} }
+
+  .quick-questions {
+    padding: 0 14px 10px;
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    flex-shrink: 0;
+  }
+  .quick-btn {
+    background: transparent;
+    border: 1px solid #2e2e2e;
+    color: #999;
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-family: 'Jost', sans-serif;
+    font-size: clamp(11px, 3vw, 12px);
+    cursor: pointer;
+    transition: border-color 0.2s, color 0.2s;
+    white-space: nowrap;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .quick-btn:hover, .quick-btn:active { border-color: #C8102E; color: #C8102E; }
+
+  .input-area {
+    background: #161616;
+    padding: 12px 16px;
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
+    border-top: 1px solid #222;
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    flex-shrink: 0;
+  }
+  .input-field {
+    flex: 1;
+    background: #1e1e1e;
+    border: 1px solid #2a2a2a;
+    border-radius: 12px;
+    padding: 11px 14px;
+    color: #e8e8e8;
+    font-family: 'Jost', sans-serif;
+    font-size: 16px;
+    outline: none;
+    transition: border-color 0.2s;
+    -webkit-appearance: none;
+  }
+  .input-field:focus { border-color: #C8102E; }
+  .input-field::placeholder { color: #555; }
+
+  .send-btn {
+    width: 44px; height: 44px;
+    background: #C8102E;
+    border: none;
+    border-radius: 12px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.2s, transform 0.15s;
+    flex-shrink: 0;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .send-btn:hover { background: #a50d26; }
+  .send-btn:active { transform: scale(0.93); }
+  .send-btn:disabled { background: #2a2a2a; cursor: not-allowed; transform: none; }
+
+  .powered {
+    text-align: center;
+    padding: 6px 0 8px;
+    font-size: 10px;
+    color: #3a3a3a;
+    letter-spacing: 1px;
+    flex-shrink: 0;
+    background: #161616;
+  }
+  .powered span { color: #555; }
+`;
+
+export default function RestaurantChatbot() {
+  const [messages, setMessages] = useState([
+    {
+      role: "assistant",
+      content: `¡Benvenuto a ${RESTAURANT.name}! 🍷 Soy tu asistente virtual. ¿En qué puedo ayudarte hoy?`,
+    },
+  ]);
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const bottomRef = useRef(null);
+  const inputRef = useRef(null);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, loading]);
+
+  const sendMessage = async (text) => {
+    const userMessage = text || input.trim();
+    if (!userMessage || loading) return;
+
+    setInput("");
+    const newMessages = [...messages, { role: "user", content: userMessage }];
+    setMessages(newMessages);
+    setLoading(true);
+
+    try {
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "claude-haiku-4-5-20251001",
+          max_tokens: 512,
+          system: SYSTEM_PROMPT,
+          messages: newMessages.map((m) => ({ role: m.role, content: m.content })),
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error?.message || "API error");
+      const reply = data.content?.[0]?.text || "Lo siento, intenta de nuevo.";
+      setMessages([...newMessages, { role: "assistant", content: reply }]);
+    } catch {
+      setMessages([
+        ...newMessages,
+        { role: "assistant", content: "Disculpa, hubo un problema. Por favor intenta nuevamente." },
+      ]);
+    } finally {
+      setLoading(false);
+      if (window.innerWidth >= 500) inputRef.current?.focus();
+    }
+  };
+
+  return (
+    <>
+      <style>{styles}</style>
+      <div className="page">
+        <div className="chat-wrapper">
+          <div className="header">
+            <div className="header-inner">
+              <div className="header-emoji">{RESTAURANT.emoji}</div>
+              <p className="restaurant-name">{RESTAURANT.name}</p>
+              <p className="restaurant-sub">Ristorante Italiano</p>
+              <div className="status">
+                <div className="status-dot" />
+                <span className="status-text">Asistente en línea</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="messages">
+            {messages.map((msg, i) => (
+              <div key={i} className={`bubble ${msg.role}`}>
+                {msg.content}
+              </div>
+            ))}
+            {loading && (
+              <div className="bubble assistant" style={{ padding: 0 }}>
+                <div className="typing">
+                  <div className="dot" />
+                  <div className="dot" />
+                  <div className="dot" />
+                </div>
+              </div>
+            )}
+            <div ref={bottomRef} />
+          </div>
+
+          <div className="quick-questions">
+            {QUICK_QUESTIONS.map((q) => (
+              <button key={q} className="quick-btn" onClick={() => sendMessage(q)}>
+                {q}
+              </button>
+            ))}
+          </div>
+
+          <div className="input-area">
+            <input
+              ref={inputRef}
+              className="input-field"
+              placeholder="Escribe tu pregunta..."
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && sendMessage()}
+              enterKeyHint="send"
+            />
+            <button
+              className="send-btn"
+              onClick={() => sendMessage()}
+              disabled={loading || !input.trim()}
+              aria-label="Enviar"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="22" y1="2" x2="11" y2="13" />
+                <polygon points="22 2 15 22 11 13 2 9 22 2" />
+              </svg>
+            </button>
+          </div>
+
+          <div className="powered">POWERED BY <span>CLAUDE AI</span></div>
+        </div>
+      </div>
+    </>
+  );
+}
