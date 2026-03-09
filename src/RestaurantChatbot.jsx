@@ -8,43 +8,57 @@ const RESTAURANT = {
   accent: "#F4A261",
 };
 
-const SYSTEM_PROMPT = `Eres el asistente virtual de ${RESTAURANT.name}, un restaurante italiano elegante.
+const SYSTEM_PROMPT = `You are the virtual assistant of ${RESTAURANT.name}, an elegant Italian restaurant.
 
-INFORMACIÓN DEL RESTAURANTE:
-- Nombre: ${RESTAURANT.name}
-- Tipo: Restaurante italiano de autor
-- Horario: Lunes a Jueves 12:00–23:00 | Viernes y Sábado 12:00–00:00 | Domingo 12:00–22:00
-- Dirección: Calle Gourmet 45, Zona Rosa
-- Teléfono: +1 (555) 234-5678
-- Reservaciones: Sí, con mínimo 2 horas de anticipación
+RESTAURANT INFO:
+- Name: ${RESTAURANT.name}
+- Type: Italian fine dining
+- Hours: Mon–Thu 12:00–23:00 | Fri–Sat 12:00–00:00 | Sun 12:00–22:00
+- Address: Gourmet St. 45, Zona Rosa
+- Phone: +1 (555) 234-5678
+- Reservations: Yes, at least 2 hours in advance
 
-MENÚ PRINCIPALES:
-Entradas: Bruschetta al pomodoro $12 | Carpaccio di manzo $18 | Burrata fresca $16
-Pastas: Spaghetti alla carbonara $24 | Tagliatelle al ragú $22 | Ravioli di ricotta $20
-Secondi: Branzino al forno $32 | Pollo alla Milanese $28 | Filetto di manzo $45
-Postres: Tiramisú clásico $10 | Panna cotta $9 | Cannoli siciliani $11
-Bebidas: Vinos desde $9 la copa | Cócteles $14 | Sin alcohol $6
+MENU:
+Starters: Bruschetta al pomodoro $12 | Carpaccio di manzo $18 | Burrata fresca $16
+Pasta: Spaghetti alla carbonara $24 | Tagliatelle al ragú $22 | Ravioli di ricotta $20
+Mains: Branzino al forno $32 | Pollo alla Milanese $28 | Filetto di manzo $45
+Desserts: Classic Tiramisú $10 | Panna cotta $9 | Cannoli siciliani $11
+Drinks: Wine from $9/glass | Cocktails $14 | Non-alcoholic $6
 
-OPCIONES ESPECIALES:
-- Menú vegetariano disponible
-- Opciones sin gluten (preguntar al mesero)
-- Menú infantil $15
-- Happy Hour: Lun-Jue 17:00–19:00 (50% en cócteles)
+SPECIAL OPTIONS:
+- Vegetarian menu available
+- Gluten-free options (ask your server)
+- Kids menu $15
+- Happy Hour: Mon–Thu 17:00–19:00 (50% off cocktails)
 
-REGLAS:
-- Responde SIEMPRE en el idioma que te hablen (español, inglés, etc.)
-- Sé cálido, elegante y breve (máximo 3-4 líneas por respuesta)
-- Si preguntan por reservación, pide: nombre, fecha, hora y número de personas
-- Si no sabes algo, di que con gusto un miembro del equipo puede ayudar
-- Usa emojis con moderación y buen gusto
-- Nunca inventes precios o platos que no están en el menú`;
+RULES:
+- ALWAYS respond in the language the user writes in (English, Spanish, etc.)
+- Be warm, elegant and brief (max 3-4 lines per response)
+- If asked about a reservation, request: name, date, time and number of guests
+- If you don't know something, say a team member will be happy to help
+- Use emojis sparingly and tastefully
+- Never invent prices or dishes not listed in the menu`;
 
-const QUICK_QUESTIONS = [
-  "¿Cuál es el horario?",
-  "¿Tienen opciones vegetarianas?",
-  "Quiero hacer una reservación",
-  "¿Qué me recomiendas?",
-];
+const I18N = {
+  en: {
+    sub: "Ristorante Italiano",
+    status: "Assistant online",
+    welcome: `Welcome to ${RESTAURANT.name}! 🍷 I'm your virtual assistant. How can I help you today?`,
+    placeholder: "Type your question...",
+    quick: ["What are your hours?", "Vegetarian options?", "Make a reservation", "What do you recommend?"],
+    powered: "POWERED BY CLAUDE AI",
+    toggle: "ES",
+  },
+  es: {
+    sub: "Ristorante Italiano",
+    status: "Asistente en línea",
+    welcome: `¡Benvenuto a ${RESTAURANT.name}! 🍷 Soy tu asistente virtual. ¿En qué puedo ayudarte hoy?`,
+    placeholder: "Escribe tu pregunta...",
+    quick: ["¿Cuál es el horario?", "¿Opciones vegetarianas?", "Hacer una reservación", "¿Qué recomiendas?"],
+    powered: "POWERED BY CLAUDE AI",
+    toggle: "EN",
+  },
+};
 
 const styles = `
   @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;1,400&family=Jost:wght@300;400;500&display=swap');
@@ -278,19 +292,45 @@ const styles = `
     background: #161616;
   }
   .powered span { color: #555; }
+
+  .lang-btn {
+    position: absolute;
+    top: 50%; right: 0;
+    transform: translateY(-50%);
+    background: rgba(255,255,255,0.15);
+    border: 1px solid rgba(255,255,255,0.3);
+    color: white;
+    font-family: 'Jost', sans-serif;
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 1px;
+    padding: 5px 10px;
+    border-radius: 20px;
+    cursor: pointer;
+    transition: background 0.2s;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .lang-btn:hover { background: rgba(255,255,255,0.25); }
 `;
 
 export default function RestaurantChatbot() {
+  const [lang, setLang] = useState("en");
+  const t = I18N[lang];
+
   const [messages, setMessages] = useState([
-    {
-      role: "assistant",
-      content: `¡Benvenuto a ${RESTAURANT.name}! 🍷 Soy tu asistente virtual. ¿En qué puedo ayudarte hoy?`,
-    },
+    { role: "assistant", content: I18N.en.welcome },
   ]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const bottomRef = useRef(null);
   const inputRef = useRef(null);
+
+  const toggleLang = () => {
+    const next = lang === "en" ? "es" : "en";
+    setLang(next);
+    setMessages([{ role: "assistant", content: I18N[next].welcome }]);
+    setInput("");
+  };
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -319,12 +359,12 @@ export default function RestaurantChatbot() {
 
       const data = await response.json();
       if (!response.ok) throw new Error(data.error?.message || "API error");
-      const reply = data.content?.[0]?.text || "Lo siento, intenta de nuevo.";
+      const reply = data.content?.[0]?.text || (lang === "en" ? "Sorry, please try again." : "Lo siento, intenta de nuevo.");
       setMessages([...newMessages, { role: "assistant", content: reply }]);
     } catch {
       setMessages([
         ...newMessages,
-        { role: "assistant", content: "Disculpa, hubo un problema. Por favor intenta nuevamente." },
+        { role: "assistant", content: lang === "en" ? "Sorry, there was a problem. Please try again." : "Disculpa, hubo un problema. Por favor intenta nuevamente." },
       ]);
     } finally {
       setLoading(false);
@@ -338,14 +378,15 @@ export default function RestaurantChatbot() {
       <div className="page">
         <div className="chat-wrapper">
           <div className="header">
-            <div className="header-inner">
+            <div className="header-inner" style={{ position: "relative", paddingRight: "60px" }}>
               <div className="header-emoji">{RESTAURANT.emoji}</div>
               <p className="restaurant-name">{RESTAURANT.name}</p>
-              <p className="restaurant-sub">Ristorante Italiano</p>
+              <p className="restaurant-sub">{t.sub}</p>
               <div className="status">
                 <div className="status-dot" />
-                <span className="status-text">Asistente en línea</span>
+                <span className="status-text">{t.status}</span>
               </div>
+              <button className="lang-btn" onClick={toggleLang}>{t.toggle}</button>
             </div>
           </div>
 
@@ -368,7 +409,7 @@ export default function RestaurantChatbot() {
           </div>
 
           <div className="quick-questions">
-            {QUICK_QUESTIONS.map((q) => (
+            {t.quick.map((q) => (
               <button key={q} className="quick-btn" onClick={() => sendMessage(q)}>
                 {q}
               </button>
@@ -379,7 +420,7 @@ export default function RestaurantChatbot() {
             <input
               ref={inputRef}
               className="input-field"
-              placeholder="Escribe tu pregunta..."
+              placeholder={t.placeholder}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && sendMessage()}
@@ -389,7 +430,7 @@ export default function RestaurantChatbot() {
               className="send-btn"
               onClick={() => sendMessage()}
               disabled={loading || !input.trim()}
-              aria-label="Enviar"
+              aria-label="Send"
             >
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <line x1="22" y1="2" x2="11" y2="13" />
