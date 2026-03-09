@@ -34,10 +34,16 @@ SPECIAL OPTIONS:
 RULES:
 - ALWAYS respond in the language the user writes in (English, Spanish, etc.)
 - Be warm, elegant and brief (max 3-4 lines per response)
-- If asked about a reservation, request: name, date, time and number of guests
 - If you don't know something, say a team member will be happy to help
 - Use emojis sparingly and tastefully
-- Never invent prices or dishes not listed in the menu`;
+- Never invent prices or dishes not listed in the menu
+
+RESERVATION SYSTEM:
+- When a user wants to make a reservation, collect conversationally: full name, date, time, and number of guests.
+- Ask for one piece of information at a time if not all provided at once.
+- Once you have ALL FOUR pieces confirmed (name, date, time, guests), respond normally confirming the reservation details, then on a NEW LINE add exactly:
+RESERVATION_DATA:{"name":"...","date":"...","time":"...","guests":...}
+- Only add RESERVATION_DATA when you have all four confirmed. Do not add it otherwise.`;
 
 const I18N = {
   en: {
@@ -359,7 +365,25 @@ export default function RestaurantChatbot() {
 
       const data = await response.json();
       if (!response.ok) throw new Error(data.error?.message || "API error");
-      const reply = data.content?.[0]?.text || (lang === "en" ? "Sorry, please try again." : "Lo siento, intenta de nuevo.");
+      let reply = data.content?.[0]?.text || (lang === "en" ? "Sorry, please try again." : "Lo siento, intenta de nuevo.");
+
+      // Detect reservation data marker
+      const reservationMatch = reply.match(/RESERVATION_DATA:(\{.*?\})/s);
+      if (reservationMatch) {
+        // Strip marker from displayed message
+        reply = reply.replace(/\nRESERVATION_DATA:\{.*?\}/s, "").trim();
+        try {
+          const reservation = JSON.parse(reservationMatch[1]);
+          await fetch("/api/reservacion", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(reservation),
+          });
+        } catch (e) {
+          console.error("Reservation error:", e);
+        }
+      }
+
       setMessages([...newMessages, { role: "assistant", content: reply }]);
     } catch {
       setMessages([

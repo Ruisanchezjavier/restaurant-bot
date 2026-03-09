@@ -3,6 +3,7 @@ import { createServer } from "node:http";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { readFileSync, existsSync } from "node:fs";
+import { Resend } from "resend";
 
 // Load .env manually (no extra dependency)
 const envPath = join(dirname(fileURLToPath(import.meta.url)), ".env");
@@ -13,11 +14,15 @@ if (existsSync(envPath)) {
   }
 }
 
-const API_KEY = process.env.GROQ_API_KEY;
-if (!API_KEY) {
+const GROQ_KEY = process.env.GROQ_API_KEY;
+if (!GROQ_KEY) {
   console.error("❌  Missing GROQ_API_KEY in .env file");
   process.exit(1);
 }
+
+const RESEND_KEY = process.env.RESEND_API_KEY;
+const OWNER_EMAIL = process.env.OWNER_EMAIL || "owner@example.com";
+const resend = RESEND_KEY ? new Resend(RESEND_KEY) : null;
 
 const app = express();
 app.use(express.json());
@@ -29,10 +34,9 @@ if (existsSync(distPath)) {
   app.use(express.static(distPath));
 }
 
-// Chat proxy endpoint
+// ── Chat proxy endpoint ──────────────────────────────────────────────────────
 app.post("/api/chat", async (req, res) => {
   try {
-    // Convert Anthropic-style request to OpenAI-compatible (Groq) format
     const { system, messages, max_tokens } = req.body;
     const groqMessages = system
       ? [{ role: "system", content: system }, ...messages]
@@ -42,7 +46,7 @@ app.post("/api/chat", async (req, res) => {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${API_KEY}`,
+        "Authorization": `Bearer ${GROQ_KEY}`,
       },
       body: JSON.stringify({
         model: "llama-3.3-70b-versatile",
@@ -54,12 +58,50 @@ app.post("/api/chat", async (req, res) => {
     const data = await response.json();
     if (!response.ok) return res.status(response.status).json(data);
 
-    // Convert Groq response back to Anthropic-style so the frontend works unchanged
     const text = data.choices?.[0]?.message?.content || "";
     res.json({ content: [{ type: "text", text }] });
   } catch (err) {
     res.status(500).json({ error: { message: "Proxy error: " + err.message } });
   }
+});
+
+// ── Reservation endpoint ─────────────────────────────────────────────────────
+app.post("/api/reservacion", async (req, res) => {
+  const { name, date, time, guests } = req.body;
+
+  if (!name || !date || !time || !guests) {
+    return res.status(400).json({ error: "Missing reservation fields" });
+  }
+
+  // Send email to owner
+  if (resend) {
+    try {
+      await resend.emails.send({
+        from: "Bella Notte Bot <onboarding@resend.dev>",
+        to: OWNER_EMAIL,
+        subject: `Nueva reservación — ${name}`,
+        html: `
+          <div style="font-family: Georgia, serif; max-width: 500px; margin: 0 auto; padding: 32px; background: #fff;">
+            <h2 style="color: #C8102E; margin-bottom: 8px;">Nueva Reservación</h2>
+            <p style="color: #666; margin-bottom: 24px;">Bella Notte · Asistente Virtual</p>
+            <table style="width:100%; border-collapse: collapse;">
+              <tr><td style="padding: 10px 0; border-bottom: 1px solid #eee; color: #888; width: 40%;">Nombre</td><td style="padding: 10px 0; border-bottom: 1px solid #eee; font-weight: bold;">${name}</td></tr>
+              <tr><td style="padding: 10px 0; border-bottom: 1px solid #eee; color: #888;">Fecha</td><td style="padding: 10px 0; border-bottom: 1px solid #eee; font-weight: bold;">${date}</td></tr>
+              <tr><td style="padding: 10px 0; border-bottom: 1px solid #eee; color: #888;">Hora</td><td style="padding: 10px 0; border-bottom: 1px solid #eee; font-weight: bold;">${time}</td></tr>
+              <tr><td style="padding: 10px 0; color: #888;">Personas</td><td style="padding: 10px 0; font-weight: bold;">${guests}</td></tr>
+            </table>
+            <p style="margin-top: 24px; font-size: 12px; color: #aaa;">Enviado automáticamente por el chatbot de Bella Notte</p>
+          </div>
+        `,
+      });
+    } catch (emailErr) {
+      console.error("Email error:", emailErr.message);
+    }
+  } else {
+    console.log("⚠️  No RESEND_API_KEY — email not sent. Reservation:", { name, date, time, guests });
+  }
+
+  res.json({ ok: true });
 });
 
 // SPA fallback
