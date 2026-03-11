@@ -79,18 +79,18 @@ app.post("/api/reservacion", async (req, res) => {
       await resend.emails.send({
         from: "Bella Notte Bot <onboarding@resend.dev>",
         to: OWNER_EMAIL,
-        subject: `Nueva reservación — ${name}`,
+        subject: `New Reservation — ${name}`,
         html: `
           <div style="font-family: Georgia, serif; max-width: 500px; margin: 0 auto; padding: 32px; background: #fff;">
-            <h2 style="color: #C8102E; margin-bottom: 8px;">Nueva Reservación</h2>
-            <p style="color: #666; margin-bottom: 24px;">Bella Notte · Asistente Virtual</p>
+            <h2 style="color: #C8102E; margin-bottom: 8px;">New Reservation</h2>
+            <p style="color: #666; margin-bottom: 24px;">Bella Notte · Virtual Assistant</p>
             <table style="width:100%; border-collapse: collapse;">
-              <tr><td style="padding: 10px 0; border-bottom: 1px solid #eee; color: #888; width: 40%;">Nombre</td><td style="padding: 10px 0; border-bottom: 1px solid #eee; font-weight: bold;">${name}</td></tr>
-              <tr><td style="padding: 10px 0; border-bottom: 1px solid #eee; color: #888;">Fecha</td><td style="padding: 10px 0; border-bottom: 1px solid #eee; font-weight: bold;">${date}</td></tr>
-              <tr><td style="padding: 10px 0; border-bottom: 1px solid #eee; color: #888;">Hora</td><td style="padding: 10px 0; border-bottom: 1px solid #eee; font-weight: bold;">${time}</td></tr>
-              <tr><td style="padding: 10px 0; color: #888;">Personas</td><td style="padding: 10px 0; font-weight: bold;">${guests}</td></tr>
+              <tr><td style="padding: 10px 0; border-bottom: 1px solid #eee; color: #888; width: 40%;">Name</td><td style="padding: 10px 0; border-bottom: 1px solid #eee; font-weight: bold;">${name}</td></tr>
+              <tr><td style="padding: 10px 0; border-bottom: 1px solid #eee; color: #888;">Date</td><td style="padding: 10px 0; border-bottom: 1px solid #eee; font-weight: bold;">${date}</td></tr>
+              <tr><td style="padding: 10px 0; border-bottom: 1px solid #eee; color: #888;">Time</td><td style="padding: 10px 0; border-bottom: 1px solid #eee; font-weight: bold;">${time}</td></tr>
+              <tr><td style="padding: 10px 0; color: #888;">Guests</td><td style="padding: 10px 0; font-weight: bold;">${guests}</td></tr>
             </table>
-            <p style="margin-top: 24px; font-size: 12px; color: #aaa;">Enviado automáticamente por el chatbot de Bella Notte</p>
+            <p style="margin-top: 24px; font-size: 12px; color: #aaa;">Sent automatically by the Bella Notte chatbot</p>
           </div>
         `,
       });
