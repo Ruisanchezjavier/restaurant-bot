@@ -39,11 +39,13 @@ RULES:
 - Never invent prices or dishes not listed in the menu
 
 RESERVATION SYSTEM:
-- When a user wants to make a reservation, collect conversationally: full name, date, time, and number of guests.
+- When a user wants to make a reservation, collect conversationally: full name, phone number, date, time, and number of guests.
 - Ask for one piece of information at a time if not all provided at once.
-- Once you have ALL FOUR pieces confirmed (name, date, time, guests), respond normally confirming the reservation details, then on a NEW LINE add exactly:
-RESERVATION_DATA:{"name":"...","date":"...","time":"...","guests":...}
-- Only add RESERVATION_DATA when you have all four confirmed. Do not add it otherwise.`;
+- Format dates as YYYY-MM-DD and times as HH:MM (24-hour) in the data marker.
+- Once you have ALL FIVE pieces confirmed, say something like "Let me check availability for you..." then on a NEW LINE add exactly:
+RESERVATION_DATA:{"nombre":"...","telefono":"...","fecha":"YYYY-MM-DD","hora":"HH:MM","personas":N}
+- Do NOT say the reservation is confirmed — the system will verify availability automatically.
+- Only add RESERVATION_DATA when you have all five confirmed. Never add it otherwise.`;
 
 const I18N = {
   en: {
@@ -370,15 +372,32 @@ export default function RestaurantChatbot() {
       // Detect reservation data marker
       const reservationMatch = reply.match(/RESERVATION_DATA:(\{.*?\})/s);
       if (reservationMatch) {
-        // Strip marker from displayed message
         reply = reply.replace(/\nRESERVATION_DATA:\{.*?\}/s, "").trim();
         try {
           const reservation = JSON.parse(reservationMatch[1]);
-          await fetch("/api/reservacion", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(reservation),
-          });
+
+          // Check availability first
+          const availRes = await fetch(`/api/disponibilidad?fecha=${reservation.fecha}`);
+          const availData = await availRes.json();
+
+          if (availData.disponibles?.includes(reservation.hora)) {
+            const resRes = await fetch("/api/reservacion", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(reservation),
+            });
+            const resData = await resRes.json();
+            if (resData.ok) {
+              reply += lang === "en"
+                ? `\n\n✅ Confirmed! Your reservation number is #${resData.id}. See you soon!`
+                : `\n\n✅ ¡Confirmado! Tu número de reservación es #${resData.id}. ¡Te esperamos!`;
+            }
+          } else {
+            const alts = availData.disponibles?.slice(0, 6).join(", ") || (lang === "en" ? "no availability that day" : "sin disponibilidad ese día");
+            reply += lang === "en"
+              ? `\n\n❌ Sorry, ${reservation.hora} is not available on ${reservation.fecha}. Available times: ${alts}. Would you like one of these?`
+              : `\n\n❌ Lo siento, ${reservation.hora} no está disponible el ${reservation.fecha}. Horarios disponibles: ${alts}. ¿Deseas alguno de estos?`;
+          }
         } catch (e) {
           console.error("Reservation error:", e);
         }

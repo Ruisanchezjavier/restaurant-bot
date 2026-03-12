@@ -4,8 +4,11 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { readFileSync, existsSync } from "node:fs";
 import { Resend } from "resend";
+import pg from "pg";
 
-// Load .env manually (no extra dependency)
+const { Pool } = pg;
+
+// Load .env manually
 const envPath = join(dirname(fileURLToPath(import.meta.url)), ".env");
 if (existsSync(envPath)) {
   for (const line of readFileSync(envPath, "utf8").split("\n")) {
@@ -22,94 +25,225 @@ if (!GROQ_KEY) {
 
 const RESEND_KEY = process.env.RESEND_API_KEY;
 const OWNER_EMAIL = process.env.OWNER_EMAIL || "owner@example.com";
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "admin123";
 const resend = RESEND_KEY ? new Resend(RESEND_KEY) : null;
+
+// ── Database ──────────────────────────────────────────────────────────────────
+const pool = process.env.DATABASE_URL
+  ? new Pool({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } })
+  : null;
+
+if (pool) {
+  pool.query(`
+    CREATE TABLE IF NOT EXISTS reservaciones (
+      id         SERIAL PRIMARY KEY,
+      nombre     VARCHAR(100) NOT NULL,
+      telefono   VARCHAR(30),
+      email      VARCHAR(100),
+      fecha      DATE NOT NULL,
+      hora       TIME NOT NULL,
+      personas   INTEGER NOT NULL,
+      estado     VARCHAR(20) DEFAULT 'pendiente',
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `)
+    .then(() => console.log("✅  Database ready"))
+    .catch(err => console.error("❌  DB init error:", err.message));
+}
+
+// ── Restaurant config ─────────────────────────────────────────────────────────
+const RESTAURANT_HOURS = {
+  0: { open: "12:00", lastSeating: "20:30" }, // Sun
+  1: { open: "12:00", lastSeating: "21:30" }, // Mon
+  2: { open: "12:00", lastSeating: "21:30" }, // Tue
+  3: { open: "12:00", lastSeating: "21:30" }, // Wed
+  4: { open: "12:00", lastSeating: "21:30" }, // Thu
+  5: { open: "12:00", lastSeating: "22:30" }, // Fri
+  6: { open: "12:00", lastSeating: "22:30" }, // Sat
+};
+const MAX_PER_SLOT = 3;
+
+function generateSlots(dayOfWeek) {
+  const h = RESTAURANT_HOURS[dayOfWeek];
+  if (!h) return [];
+  const [oh, om] = h.open.split(":").map(Number);
+  const [lh, lm] = h.lastSeating.split(":").map(Number);
+  const slots = [];
+  let cur = oh * 60 + om;
+  const last = lh * 60 + lm;
+  while (cur <= last) {
+    slots.push(`${String(Math.floor(cur / 60)).padStart(2, "0")}:${String(cur % 60).padStart(2, "0")}`);
+    cur += 30;
+  }
+  return slots;
+}
+
+function buildEmailHTML({ id, nombre, telefono, email, fecha, hora, personas }) {
+  const rows = [
+    ["Name", nombre],
+    telefono ? ["Phone", telefono] : null,
+    email ? ["Email", email] : null,
+    ["Date", fecha],
+    ["Time", hora],
+    ["Guests", personas],
+  ].filter(Boolean);
+  return `
+    <div style="font-family: Georgia, serif; max-width: 500px; margin: 0 auto; padding: 32px; background: #fff;">
+      <h2 style="color: #C8102E; margin-bottom: 8px;">New Reservation #${id}</h2>
+      <p style="color: #666; margin-bottom: 24px;">Bella Notte · Virtual Assistant</p>
+      <table style="width:100%; border-collapse: collapse;">
+        ${rows.map(([label, value], i) => `
+          <tr>
+            <td style="padding: 10px 0; ${i < rows.length - 1 ? "border-bottom: 1px solid #eee;" : ""} color: #888; width: 40%;">${label}</td>
+            <td style="padding: 10px 0; ${i < rows.length - 1 ? "border-bottom: 1px solid #eee;" : ""} font-weight: bold;">${value}</td>
+          </tr>`).join("")}
+      </table>
+      <p style="margin-top: 24px; font-size: 12px; color: #aaa;">Sent automatically by the Bella Notte chatbot</p>
+    </div>
+  `;
+}
 
 const app = express();
 app.use(express.json());
 
-// Serve built frontend in production
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const distPath = join(__dirname, "dist");
-if (existsSync(distPath)) {
-  app.use(express.static(distPath));
-}
+if (existsSync(distPath)) app.use(express.static(distPath));
 
-// ── Chat proxy endpoint ──────────────────────────────────────────────────────
+// ── Chat proxy ────────────────────────────────────────────────────────────────
 app.post("/api/chat", async (req, res) => {
   try {
     const { system, messages, max_tokens } = req.body;
-    const groqMessages = system
-      ? [{ role: "system", content: system }, ...messages]
-      : messages;
-
+    const groqMessages = system ? [{ role: "system", content: system }, ...messages] : messages;
     const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${GROQ_KEY}`,
-      },
-      body: JSON.stringify({
-        model: "llama-3.3-70b-versatile",
-        max_tokens: max_tokens || 512,
-        messages: groqMessages,
-      }),
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${GROQ_KEY}` },
+      body: JSON.stringify({ model: "llama-3.3-70b-versatile", max_tokens: max_tokens || 512, messages: groqMessages }),
     });
-
     const data = await response.json();
     if (!response.ok) return res.status(response.status).json(data);
-
-    const text = data.choices?.[0]?.message?.content || "";
-    res.json({ content: [{ type: "text", text }] });
+    res.json({ content: [{ type: "text", text: data.choices?.[0]?.message?.content || "" }] });
   } catch (err) {
     res.status(500).json({ error: { message: "Proxy error: " + err.message } });
   }
 });
 
-// ── Reservation endpoint ─────────────────────────────────────────────────────
+// ── Availability ──────────────────────────────────────────────────────────────
+app.get("/api/disponibilidad", async (req, res) => {
+  if (!pool) return res.status(503).json({ error: "Database not configured" });
+  const { fecha } = req.query;
+  if (!fecha) return res.status(400).json({ error: "fecha required" });
+  try {
+    const [y, m, d] = fecha.split("-").map(Number);
+    const allSlots = generateSlots(new Date(y, m - 1, d).getDay());
+    const result = await pool.query(
+      `SELECT hora::text, COUNT(*)::int as count FROM reservaciones
+       WHERE fecha = $1 AND estado != 'cancelada' GROUP BY hora`,
+      [fecha]
+    );
+    const booked = {};
+    result.rows.forEach(r => { booked[r.hora.slice(0, 5)] = r.count; });
+    const disponibles = allSlots.filter(s => (booked[s] || 0) < MAX_PER_SLOT);
+    res.json({ fecha, disponibles, todos: allSlots });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Reservation ───────────────────────────────────────────────────────────────
 app.post("/api/reservacion", async (req, res) => {
-  const { name, date, time, guests } = req.body;
-
-  if (!name || !date || !time || !guests) {
-    return res.status(400).json({ error: "Missing reservation fields" });
+  const { nombre, telefono, email, fecha, hora, personas } = req.body;
+  if (!nombre || !fecha || !hora || !personas) {
+    return res.status(400).json({ error: "Missing required fields" });
   }
 
-  // Send email to owner
-  if (resend) {
-    try {
-      await resend.emails.send({
-        from: "Bella Notte Bot <onboarding@resend.dev>",
-        to: OWNER_EMAIL,
-        subject: `New Reservation — ${name}`,
-        html: `
-          <div style="font-family: Georgia, serif; max-width: 500px; margin: 0 auto; padding: 32px; background: #fff;">
-            <h2 style="color: #C8102E; margin-bottom: 8px;">New Reservation</h2>
-            <p style="color: #666; margin-bottom: 24px;">Bella Notte · Virtual Assistant</p>
-            <table style="width:100%; border-collapse: collapse;">
-              <tr><td style="padding: 10px 0; border-bottom: 1px solid #eee; color: #888; width: 40%;">Name</td><td style="padding: 10px 0; border-bottom: 1px solid #eee; font-weight: bold;">${name}</td></tr>
-              <tr><td style="padding: 10px 0; border-bottom: 1px solid #eee; color: #888;">Date</td><td style="padding: 10px 0; border-bottom: 1px solid #eee; font-weight: bold;">${date}</td></tr>
-              <tr><td style="padding: 10px 0; border-bottom: 1px solid #eee; color: #888;">Time</td><td style="padding: 10px 0; border-bottom: 1px solid #eee; font-weight: bold;">${time}</td></tr>
-              <tr><td style="padding: 10px 0; color: #888;">Guests</td><td style="padding: 10px 0; font-weight: bold;">${guests}</td></tr>
-            </table>
-            <p style="margin-top: 24px; font-size: 12px; color: #aaa;">Sent automatically by the Bella Notte chatbot</p>
-          </div>
-        `,
-      });
-    } catch (emailErr) {
-      console.error("Email error:", emailErr.message);
+  if (!pool) {
+    if (resend) {
+      try {
+        await resend.emails.send({
+          from: "Bella Notte Bot <onboarding@resend.dev>",
+          to: OWNER_EMAIL,
+          subject: `New Reservation — ${nombre}`,
+          html: buildEmailHTML({ id: "N/A", nombre, telefono, email, fecha, hora, personas }),
+        });
+      } catch (e) { console.error("Email error:", e.message); }
     }
-  } else {
-    console.log("⚠️  No RESEND_API_KEY — email not sent. Reservation:", { name, date, time, guests });
+    return res.json({ ok: true, id: null });
   }
 
-  res.json({ ok: true });
+  try {
+    const check = await pool.query(
+      `SELECT COUNT(*)::int as count FROM reservaciones WHERE fecha = $1 AND hora = $2 AND estado != 'cancelada'`,
+      [fecha, hora]
+    );
+    if (check.rows[0].count >= MAX_PER_SLOT) {
+      const [y, m, d] = fecha.split("-").map(Number);
+      const allSlots = generateSlots(new Date(y, m - 1, d).getDay());
+      const bookedRes = await pool.query(
+        `SELECT hora::text, COUNT(*)::int as count FROM reservaciones WHERE fecha = $1 AND estado != 'cancelada' GROUP BY hora`,
+        [fecha]
+      );
+      const booked = {};
+      bookedRes.rows.forEach(r => { booked[r.hora.slice(0, 5)] = r.count; });
+      const alternativas = allSlots.filter(s => (booked[s] || 0) < MAX_PER_SLOT).slice(0, 6);
+      return res.status(409).json({ error: "no_disponible", alternativas });
+    }
+
+    const result = await pool.query(
+      `INSERT INTO reservaciones (nombre, telefono, email, fecha, hora, personas) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
+      [nombre, telefono || null, email || null, fecha, hora, personas]
+    );
+    const id = result.rows[0].id;
+
+    if (resend) {
+      try {
+        await resend.emails.send({
+          from: "Bella Notte Bot <onboarding@resend.dev>",
+          to: OWNER_EMAIL,
+          subject: `New Reservation #${id} — ${nombre}`,
+          html: buildEmailHTML({ id, nombre, telefono, email, fecha, hora, personas }),
+        });
+      } catch (e) { console.error("Email error:", e.message); }
+    }
+
+    res.json({ ok: true, id });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Admin ─────────────────────────────────────────────────────────────────────
+app.get("/api/admin/reservaciones", async (req, res) => {
+  if (!pool) return res.status(503).json({ error: "Database not configured" });
+  if (req.query.password !== ADMIN_PASSWORD) return res.status(401).json({ error: "Unauthorized" });
+  const fecha = req.query.fecha || new Date().toISOString().split("T")[0];
+  try {
+    const result = await pool.query(
+      `SELECT id, nombre, telefono, email, fecha::text, hora::text, personas, estado
+       FROM reservaciones WHERE fecha = $1 ORDER BY hora`,
+      [fecha]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.patch("/api/admin/reservaciones/:id", async (req, res) => {
+  if (!pool) return res.status(503).json({ error: "Database not configured" });
+  const { password, estado } = req.body;
+  if (password !== ADMIN_PASSWORD) return res.status(401).json({ error: "Unauthorized" });
+  if (!["pendiente", "confirmada", "cancelada"].includes(estado)) return res.status(400).json({ error: "Invalid estado" });
+  try {
+    await pool.query(`UPDATE reservaciones SET estado = $1 WHERE id = $2`, [estado, req.params.id]);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // SPA fallback
-if (existsSync(distPath)) {
-  app.get("*", (_, res) => res.sendFile(join(distPath, "index.html")));
-}
+if (existsSync(distPath)) app.get("*", (_, res) => res.sendFile(join(distPath, "index.html")));
 
 const PORT = process.env.PORT || 3001;
-createServer(app).listen(PORT, () => {
-  console.log(`✅  Server running on http://localhost:${PORT}`);
-});
+createServer(app).listen(PORT, () => console.log(`✅  Server running on http://localhost:${PORT}`));
