@@ -236,6 +236,8 @@ const s = {
   },
   dateInput: {
     width: "100%",
+    maxWidth: "100%",
+    minWidth: "0",
     background: "#252525",
     border: "1px solid #333",
     borderRadius: "8px",
