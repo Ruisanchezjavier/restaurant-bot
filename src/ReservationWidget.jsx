@@ -235,7 +235,7 @@ const s = {
     marginBottom: "6px",
   },
   dateInput: {
-    width: "100%",
+    width: "95%",
     maxWidth: "100%",
     minWidth: "0",
     background: "#252525",
