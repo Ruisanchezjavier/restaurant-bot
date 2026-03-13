@@ -452,7 +452,7 @@ export default function RestaurantChatbot() {
           <div className="messages">
             {messages.map((msg, i) => (
               msg.role === "widget" ? (
-                <div key={i} className="bubble assistant" style={{ padding: "6px", maxWidth: "min(300px, 90%)", background: "transparent", border: "none" }}>
+                <div key={i} style={{ alignSelf: "flex-start", width: "min(300px, 92%)" }}>
                   <ReservationWidget lang={lang} />
                 </div>
               ) : (
