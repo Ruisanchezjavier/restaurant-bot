@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import ReservationWidget from "./ReservationWidget.jsx";
 
 const RESTAURANT = {
   name: "Bella Notte",
@@ -41,13 +42,11 @@ RULES:
 - Never invent prices or dishes not listed in the menu
 
 RESERVATION SYSTEM:
-- When a user wants to make a reservation, collect conversationally: full name, phone number, date, time, and number of guests.
-- Ask for one piece of information at a time if not all provided at once.
-- Format dates as YYYY-MM-DD and times as HH:MM (24-hour) in the data marker.
-- Once you have ALL FIVE pieces confirmed, say something like "Let me check availability for you..." then on a NEW LINE add exactly:
-RESERVATION_DATA:{"nombre":"...","telefono":"...","fecha":"YYYY-MM-DD","hora":"HH:MM","personas":N}
-- Do NOT say the reservation is confirmed — the system will verify availability automatically.
-- Only add RESERVATION_DATA when you have all five confirmed. Never add it otherwise.
+- When a user wants to make a reservation, respond warmly and briefly, then on a NEW LINE add exactly:
+SHOW_RESERVATION_WIDGET
+- Do NOT collect name, phone, date, time, or guests conversationally — the interactive form handles everything.
+- Do NOT add SHOW_RESERVATION_WIDGET more than once. If the widget is already showing, just answer questions normally.
+- After the widget appears, wait for the user to complete the form. Answer any questions they have in the meantime.
 
 MODIFICATION SYSTEM:
 - When a user wants to modify an existing reservation, ask for their confirmation number (#ID).
@@ -371,7 +370,7 @@ export default function RestaurantChatbot() {
           model: "claude-haiku-4-5-20251001",
           max_tokens: 512,
           system: SYSTEM_PROMPT,
-          messages: newMessages.map((m) => ({ role: m.role, content: m.content })),
+          messages: newMessages.filter(m => m.role === "user" || m.role === "assistant").map((m) => ({ role: m.role, content: m.content })),
         }),
       });
 
@@ -379,38 +378,14 @@ export default function RestaurantChatbot() {
       if (!response.ok) throw new Error(data.error?.message || "API error");
       let reply = data.content?.[0]?.text || (lang === "en" ? "Sorry, please try again." : "Lo siento, intenta de nuevo.");
 
-      // Detect reservation data marker
-      const reservationMatch = reply.match(/RESERVATION_DATA:(\{.*?\})/s);
-      if (reservationMatch) {
-        reply = reply.replace(/\nRESERVATION_DATA:\{.*?\}/s, "").trim();
-        try {
-          const reservation = JSON.parse(reservationMatch[1]);
-
-          // Check availability first
-          const availRes = await fetch(`/api/disponibilidad?fecha=${reservation.fecha}`);
-          const availData = await availRes.json();
-
-          if (availData.disponibles?.includes(reservation.hora)) {
-            const resRes = await fetch("/api/reservacion", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(reservation),
-            });
-            const resData = await resRes.json();
-            if (resData.ok) {
-              reply += lang === "en"
-                ? `\n\n✅ Confirmed! Your reservation number is #${resData.id}. See you soon!`
-                : `\n\n✅ ¡Confirmado! Tu número de reservación es #${resData.id}. ¡Te esperamos!`;
-            }
-          } else {
-            const alts = availData.disponibles?.slice(0, 6).join(", ") || (lang === "en" ? "no availability that day" : "sin disponibilidad ese día");
-            reply += lang === "en"
-              ? `\n\n❌ Sorry, ${reservation.hora} is not available on ${reservation.fecha}. Available times: ${alts}. Would you like one of these?`
-              : `\n\n❌ Lo siento, ${reservation.hora} no está disponible el ${reservation.fecha}. Horarios disponibles: ${alts}. ¿Deseas alguno de estos?`;
-          }
-        } catch (e) {
-          console.error("Reservation error:", e);
-        }
+      // Detect widget marker
+      if (reply.includes("SHOW_RESERVATION_WIDGET")) {
+        reply = reply.replace(/\nSHOW_RESERVATION_WIDGET/g, "").replace(/SHOW_RESERVATION_WIDGET/g, "").trim();
+        const updatedMessages = [...newMessages, { role: "assistant", content: reply }, { role: "widget" }];
+        setMessages(updatedMessages);
+        setLoading(false);
+        if (window.innerWidth >= 500) inputRef.current?.focus();
+        return;
       }
 
       // Detect modification marker
@@ -476,9 +451,15 @@ export default function RestaurantChatbot() {
 
           <div className="messages">
             {messages.map((msg, i) => (
-              <div key={i} className={`bubble ${msg.role}`}>
-                {msg.content}
-              </div>
+              msg.role === "widget" ? (
+                <div key={i} className="bubble assistant" style={{ padding: "6px", maxWidth: "min(300px, 90%)", background: "transparent", border: "none" }}>
+                  <ReservationWidget lang={lang} />
+                </div>
+              ) : (
+                <div key={i} className={`bubble ${msg.role}`}>
+                  {msg.content}
+                </div>
+              )
             ))}
             {loading && (
               <div className="bubble assistant" style={{ padding: 0 }}>
