@@ -452,7 +452,7 @@ export default function RestaurantChatbot() {
           <div className="messages">
             {messages.map((msg, i) => (
               msg.role === "widget" ? (
-                <div key={i} style={{ alignSelf: "flex-start", width: "min(380px, 96%)" }}>
+                <div key={i} style={{ alignSelf: "flex-start", width: "min(430px, 96%)" }}>
                   <ReservationWidget lang={lang} />
                 </div>
               ) : (
