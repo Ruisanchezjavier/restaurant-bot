@@ -33,6 +33,16 @@ export default function AdminPanel() {
     if (auth) fetchReservas(password, fecha);
   }, [fecha]);
 
+  const deleteReserva = async (id, nombre) => {
+    if (!window.confirm(`Delete reservation #${id} for ${nombre}?`)) return;
+    await fetch(`/api/admin/reservaciones/${id}`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password }),
+    });
+    fetchReservas(password, fecha);
+  };
+
   const updateEstado = async (id, estado) => {
     await fetch(`/api/admin/reservaciones/${id}`, {
       method: "PATCH",
@@ -124,6 +134,9 @@ export default function AdminPanel() {
                             Cancel
                           </button>
                         )}
+                        <button onClick={() => deleteReserva(r.id, r.nombre)} style={{ background: "#33181818", color: "#666", border: "1px solid #2a2a2a", borderRadius: "6px", padding: "4px 10px", fontSize: "12px", cursor: "pointer" }}>
+                          Delete
+                        </button>
                       </div>
                     </td>
                   </tr>

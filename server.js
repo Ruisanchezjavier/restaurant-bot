@@ -312,6 +312,18 @@ app.patch("/api/admin/reservaciones/:id", async (req, res) => {
   }
 });
 
+app.delete("/api/admin/reservaciones/:id", async (req, res) => {
+  if (!pool) return res.status(503).json({ error: "Database not configured" });
+  const { password } = req.body;
+  if (password !== ADMIN_PASSWORD) return res.status(401).json({ error: "Unauthorized" });
+  try {
+    await pool.query(`DELETE FROM reservaciones WHERE id = $1`, [req.params.id]);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // SPA fallback
 if (existsSync(distPath)) app.get("*", (_, res) => res.sendFile(join(distPath, "index.html")));
 
