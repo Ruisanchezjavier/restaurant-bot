@@ -47,7 +47,15 @@ RESERVATION SYSTEM:
 - Once you have ALL FIVE pieces confirmed, say something like "Let me check availability for you..." then on a NEW LINE add exactly:
 RESERVATION_DATA:{"nombre":"...","telefono":"...","fecha":"YYYY-MM-DD","hora":"HH:MM","personas":N}
 - Do NOT say the reservation is confirmed — the system will verify availability automatically.
-- Only add RESERVATION_DATA when you have all five confirmed. Never add it otherwise.`;
+- Only add RESERVATION_DATA when you have all five confirmed. Never add it otherwise.
+
+MODIFICATION SYSTEM:
+- When a user wants to modify an existing reservation, ask for their confirmation number (#ID).
+- Then ask what they want to change: date, time, and/or number of guests.
+- Once you have the confirmation number AND all new details confirmed, say "Let me update your reservation..." then on a NEW LINE add exactly:
+MODIFY_RESERVATION_DATA:{"id":N,"fecha":"YYYY-MM-DD","hora":"HH:MM","personas":N}
+- Do NOT say the reservation is updated — the system will handle it automatically.
+- Only add MODIFY_RESERVATION_DATA when you have the id and all new details. Never add it otherwise.`;
 
 const I18N = {
   en: {
@@ -402,6 +410,37 @@ export default function RestaurantChatbot() {
           }
         } catch (e) {
           console.error("Reservation error:", e);
+        }
+      }
+
+      // Detect modification marker
+      const modifyMatch = reply.match(/MODIFY_RESERVATION_DATA:(\{.*?\})/s);
+      if (modifyMatch) {
+        reply = reply.replace(/\nMODIFY_RESERVATION_DATA:\{.*?\}/s, "").trim();
+        try {
+          const modData = JSON.parse(modifyMatch[1]);
+          const resRes = await fetch(`/api/reservacion/${modData.id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(modData),
+          });
+          const resData = await resRes.json();
+          if (resData.ok) {
+            reply += lang === "en"
+              ? `\n\n✅ Reservation #${modData.id} has been updated!`
+              : `\n\n✅ ¡Reservación #${modData.id} actualizada!`;
+          } else if (resData.error === "not_found") {
+            reply += lang === "en"
+              ? `\n\n❌ No reservation found with #${modData.id}. Please check your confirmation number.`
+              : `\n\n❌ No se encontró la reservación #${modData.id}. Verifica tu número de confirmación.`;
+          } else if (resData.error === "no_disponible") {
+            const alts = resData.alternativas?.join(", ") || (lang === "en" ? "no availability" : "sin disponibilidad");
+            reply += lang === "en"
+              ? `\n\n❌ That time is not available. Try one of these: ${alts}`
+              : `\n\n❌ Ese horario no está disponible. Prueba uno de estos: ${alts}`;
+          }
+        } catch (e) {
+          console.error("Modify error:", e);
         }
       }
 

@@ -212,6 +212,76 @@ app.post("/api/reservacion", async (req, res) => {
   }
 });
 
+// ── Modify reservation ────────────────────────────────────────────────────────
+app.patch("/api/reservacion/:id", async (req, res) => {
+  if (!pool) return res.status(503).json({ error: "Database not configured" });
+  const id = parseInt(req.params.id);
+  const { fecha, hora, personas } = req.body;
+  if (!id || !fecha || !hora || !personas) {
+    return res.status(400).json({ error: "Missing required fields" });
+  }
+  try {
+    const existing = await pool.query(
+      `SELECT id, nombre, telefono, fecha::text, hora::text, personas FROM reservaciones WHERE id = $1 AND estado != 'cancelada'`,
+      [id]
+    );
+    if (existing.rows.length === 0) {
+      return res.status(404).json({ error: "not_found" });
+    }
+    const prev = existing.rows[0];
+
+    // Check availability for new slot (excluding this reservation)
+    const check = await pool.query(
+      `SELECT COUNT(*)::int as count FROM reservaciones WHERE fecha = $1 AND hora = $2 AND estado != 'cancelada' AND id != $3`,
+      [fecha, hora, id]
+    );
+    if (check.rows[0].count >= MAX_PER_SLOT) {
+      const [y, m, d] = fecha.split("-").map(Number);
+      const allSlots = generateSlots(new Date(y, m - 1, d).getDay());
+      const bookedRes = await pool.query(
+        `SELECT hora::text, COUNT(*)::int as count FROM reservaciones WHERE fecha = $1 AND estado != 'cancelada' AND id != $2 GROUP BY hora`,
+        [fecha, id]
+      );
+      const booked = {};
+      bookedRes.rows.forEach(r => { booked[r.hora.slice(0, 5)] = r.count; });
+      const alternativas = allSlots.filter(s => (booked[s] || 0) < MAX_PER_SLOT).slice(0, 6);
+      return res.status(409).json({ error: "no_disponible", alternativas });
+    }
+
+    await pool.query(
+      `UPDATE reservaciones SET fecha = $1, hora = $2, personas = $3 WHERE id = $4`,
+      [fecha, hora, personas, id]
+    );
+
+    if (resend) {
+      try {
+        await resend.emails.send({
+          from: "Bella Notte Bot <onboarding@resend.dev>",
+          to: OWNER_EMAIL,
+          subject: `Reservation Modified #${id} — ${prev.nombre}`,
+          html: `
+            <div style="font-family: Georgia, serif; max-width: 500px; margin: 0 auto; padding: 32px; background: #fff;">
+              <h2 style="color: #F59E0B; margin-bottom: 8px;">Reservation Modified #${id}</h2>
+              <p style="color: #666; margin-bottom: 24px;">Bella Notte · Virtual Assistant</p>
+              <table style="width:100%; border-collapse: collapse;">
+                <tr><td style="padding: 10px 0; border-bottom: 1px solid #eee; color: #888; width: 40%;">Name</td><td style="padding: 10px 0; border-bottom: 1px solid #eee; font-weight: bold;">${prev.nombre}</td></tr>
+                <tr><td style="padding: 10px 0; border-bottom: 1px solid #eee; color: #888;">Date</td><td style="padding: 10px 0; border-bottom: 1px solid #eee;"><span style="text-decoration:line-through;color:#aaa;">${prev.fecha}</span> → <strong>${fecha}</strong></td></tr>
+                <tr><td style="padding: 10px 0; border-bottom: 1px solid #eee; color: #888;">Time</td><td style="padding: 10px 0; border-bottom: 1px solid #eee;"><span style="text-decoration:line-through;color:#aaa;">${prev.hora.slice(0,5)}</span> → <strong>${hora}</strong></td></tr>
+                <tr><td style="padding: 10px 0; color: #888;">Guests</td><td style="padding: 10px 0;"><span style="text-decoration:line-through;color:#aaa;">${prev.personas}</span> → <strong>${personas}</strong></td></tr>
+              </table>
+              <p style="margin-top: 24px; font-size: 12px; color: #aaa;">Sent automatically by the Bella Notte chatbot</p>
+            </div>
+          `,
+        });
+      } catch (e) { console.error("Email error:", e.message); }
+    }
+
+    res.json({ ok: true, id });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── Admin ─────────────────────────────────────────────────────────────────────
 app.get("/api/admin/reservaciones", async (req, res) => {
   if (!pool) return res.status(503).json({ error: "Database not configured" });
